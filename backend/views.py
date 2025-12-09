@@ -15,7 +15,7 @@ POLYGON_RPC = f"https://polygon-amoy.infura.io/v3/{YOUR_INFURA_KEY}"
 web3 = Web3(Web3.HTTPProvider(POLYGON_RPC))
 
 # Solana RPC
-solana_client = SolanaClient("https://api.devnet.solana.com")
+solana_client = SolanaClient("https://devnet.helius-rpc.com/?api-key=1a9a9285-2659-492c-8405-19b7f344bb38")
 
 # Receiving Wallets
 POLYGON_RECEIVE_WALLET = "0x31454F46ad995d77b0280dcBf06C3E571854Ec20".lower()
@@ -35,10 +35,6 @@ class VerifyPayment(APIView):
         network = serializer.validated_data["network"]
         wallet = serializer.validated_data.get("wallet")
         tx_hash = serializer.validated_data["tx_hash"]
-        
-        print("Connected to Polygon:", web3.is_connected())
-        print(web3.eth.chain_id)
-
 
         if network == "polygon":
             try:
@@ -72,35 +68,58 @@ class VerifyPayment(APIView):
         # ---------------------------
         if network == "solana":
 
+            # Validate signature
             try:
                 sig = Signature.from_string(tx_hash)
             except Exception:
                 return Response({"error": "Invalid Solana signature format"}, status=400)
 
-            sol_tx = solana_client.get_transaction(sig, max_supported_transaction_version=0)
+            # Fetch transaction
+            try:
+                sol_tx = solana_client.get_transaction(
+                    sig,
+                    commitment="confirmed",
+                    max_supported_transaction_version=0
+                )
+            except Exception as e:
+                return Response({"error": f"RPC error: {str(e)}"}, status=400)
 
-            if sol_tx["result"] is None:
-                return Response({"error": "Invalid Solana transaction"}, status=400)
+            # Check if transaction exists
+            if sol_tx.value is None:
+                return Response({"error": "Invalid or unconfirmed Solana transaction"}, status=400)
 
-            meta = sol_tx["result"]["meta"]
-            pre_balances = meta["preBalances"]
-            post_balances = meta["postBalances"]
+            tx_value = sol_tx.value
 
-            diff = (post_balances[1] - pre_balances[1]) / 1e9
+            # Correct metadata path
+            meta = tx_value.transaction.meta
+            if meta is None:
+                return Response({"error": "No metadata in Solana transaction"}, status=400)
 
-            if diff < float(REQUIRED_AMOUNT_SOL):
-                return Response({"error": "Insufficient SOL amount"}, status=400)
+            pre_balances = list(meta.pre_balances)
+            post_balances = list(meta.post_balances)
 
-            instructions = sol_tx["result"]["transaction"]["message"]["accountKeys"]
-            if SOLANA_RECEIVE_WALLET not in instructions:
+            # Correct account-keys path
+            account_keys = [
+                str(k) for k in tx_value.transaction.transaction.message.account_keys
+            ]
+
+            if SOLANA_RECEIVE_WALLET not in account_keys:
                 return Response({"error": "Wrong Solana wallet"}, status=400)
+
+            receiver_index = account_keys.index(SOLANA_RECEIVE_WALLET)
+
+            diff_lamports = post_balances[receiver_index] - pre_balances[receiver_index]
+            diff_sol = diff_lamports / 1e9
+
+            if diff_sol < float(REQUIRED_AMOUNT_SOL):
+                return Response({"error": "Insufficient SOL amount"}, status=400)
 
             return Response({
                 "success": True,
                 "network": "solana",
                 "wallet": wallet,
                 "tx_hash": tx_hash,
-                "amount": diff,
+                "amount": diff_sol,
             }, status=200)
 
         return Response({"error": "Unsupported network"}, status=400)
