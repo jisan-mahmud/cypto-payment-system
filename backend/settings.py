@@ -116,3 +116,19 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+
+
+import os
+from decimal import Decimal
+from dotenv import load_dotenv
+load_dotenv()
+
+INFURA_KEY = os.getenv("INFURA_KEY")
+HELIUS_KEY = os.getenv("HELIUS_KEY")
+
+POLYGON_RECEIVE_WALLET = os.getenv("POLYGON_RECEIVE_WALLET")
+SOLANA_RECEIVE_WALLET = os.getenv("SOLANA_RECEIVE_WALLET")
+
+REQUIRED_AMOUNT_POLYGON = Decimal(os.getenv("REQUIRED_AMOUNT_POLYGON", "0.1"))
+REQUIRED_AMOUNT_SOL = Decimal(os.getenv("REQUIRED_AMOUNT_SOL", "0.1"))
